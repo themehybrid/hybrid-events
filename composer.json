@@ -1,6 +1,6 @@
 {
     "name": "themehybrid/hybrid-events",
-    "description": "The Events package.",
+    "description": "The Events package for Hybrid Core.",
     "license": "GPL-2.0-or-later",
     "keywords": [
         "wordpress"
@@ -19,7 +19,7 @@
         "forum": "https://themehybrid.com/board/forums/hybrid-core"
     },
     "require": {
-        "php": ">=8.0",
+        "php": ">=8.2",
         "themehybrid/hybrid-contracts": "^2.0",
         "themehybrid/hybrid-core": "^7.0",
         "themehybrid/hybrid-tools": "^2.0"
