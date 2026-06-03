@@ -11,6 +11,7 @@ if ( ! function_exists( __NAMESPACE__ . '\\event' ) ) {
      * @param string|object $event
      * @param mixed         $payload
      * @param bool          $halt
+     *
      * @return array|null
      */
     function event( ...$args ) {

@@ -7,10 +7,10 @@ use Hybrid\Container\Container;
 use Hybrid\Contracts\Container\Container as ContainerContract;
 use Hybrid\Contracts\Events\Dispatcher as DispatcherContract;
 use Hybrid\Tools\Arr;
+use Hybrid\Tools\Collection;
+use Hybrid\Tools\Reflection\Traits\ReflectsClosures;
 use Hybrid\Tools\Str;
 use Hybrid\Tools\Traits\Macroable;
-use Hybrid\Tools\Traits\ReflectsClosures;
-use function Hybrid\Tools\collect;
 
 class Dispatcher implements DispatcherContract {
 
@@ -46,13 +46,33 @@ class Dispatcher implements DispatcherContract {
     protected $wildcardsCache = [];
 
     /**
+     * The currently deferred events.
+     *
+     * @var array
+     */
+    protected $deferredEvents = [];
+
+    /**
+     * Indicates if events should be deferred.
+     *
+     * @var bool
+     */
+    protected $deferringEvents = false;
+
+    /**
+     * The specific events to defer (null means defer all events).
+     *
+     * @var array|null
+     */
+    protected $eventsToDefer = null;
+
+    /**
      * Create a new event dispatcher instance.
      *
      * @param \Hybrid\Contracts\Container\Container|null $container
-     * @return void
      */
     public function __construct( ?ContainerContract $container = null ) {
-        $this->container = $container ?: new Container();
+        $this->container = $container ?: new Container;
     }
 
     /**
@@ -60,11 +80,12 @@ class Dispatcher implements DispatcherContract {
      *
      * @param \Closure|string|array      $events
      * @param \Closure|string|array|null $listener
+     *
      * @return void
      */
     public function listen( $events, $listener = null ) {
         if ( $events instanceof Closure ) {
-            return collect( $this->firstClosureParameterTypes( $events ) )
+            return ( new Collection( $this->firstClosureParameterTypes( $events ) ) )
                 ->each( function ( $event ) use ( $events ) {
                     $this->listen( $event, $events );
                 } );
@@ -84,6 +105,7 @@ class Dispatcher implements DispatcherContract {
      *
      * @param string          $event
      * @param \Closure|string $listener
+     *
      * @return void
      */
     protected function setupWildcardListen( $event, $listener ) {
@@ -96,6 +118,7 @@ class Dispatcher implements DispatcherContract {
      * Determine if a given event has listeners.
      *
      * @param string $eventName
+     *
      * @return bool
      */
     public function hasListeners( $eventName ) {
@@ -108,6 +131,7 @@ class Dispatcher implements DispatcherContract {
      * Determine if the given event has any wildcard listeners.
      *
      * @param string $eventName
+     *
      * @return bool
      */
     public function hasWildcardListeners( $eventName ) {
@@ -125,6 +149,7 @@ class Dispatcher implements DispatcherContract {
      *
      * @param string       $event
      * @param object|array $payload
+     *
      * @return void
      */
     public function push( $event, $payload = [] ) {
@@ -137,6 +162,7 @@ class Dispatcher implements DispatcherContract {
      * Flush a set of pushed events.
      *
      * @param string $event
+     *
      * @return void
      */
     public function flush( $event ) {
@@ -147,6 +173,7 @@ class Dispatcher implements DispatcherContract {
      * Register an event subscriber with the dispatcher.
      *
      * @param object|string $subscriber
+     *
      * @return void
      */
     public function subscribe( $subscriber ) {
@@ -173,7 +200,8 @@ class Dispatcher implements DispatcherContract {
      * Resolve the subscriber instance.
      *
      * @param object|string $subscriber
-     * @return mixed
+     *
+     * @return ($subscriber is object ? object : mixed)
      */
     protected function resolveSubscriber( $subscriber ) {
         if ( is_string( $subscriber ) ) {
@@ -188,7 +216,8 @@ class Dispatcher implements DispatcherContract {
      *
      * @param string|object $event
      * @param mixed         $payload
-     * @return mixed
+     *
+     * @return array|null
      */
     public function until( $event, $payload = [] ) {
         return $this->dispatch( $event, $payload, true );
@@ -200,26 +229,25 @@ class Dispatcher implements DispatcherContract {
      * @param string|object $event
      * @param mixed         $payload
      * @param bool          $halt
+     *
      * @return array|null
      */
     public function dispatch( $event, $payload = [], $halt = false ) {
         // When the given "event" is actually an object we will assume it is an event
         // object and use the class as the event name and this event itself as the
         // payload to the handler, which makes object based events quite simple.
-        // Note: Downgraded it to ensure PHP 8.0 compatibility,
-        // as it relies on the array unpacking feature with the spread operator (...),
-        // which was introduced in PHP 7.4 for arrays but could not be used in such a context until PHP >=8.1.
-        // @see https://wiki.php.net/rfc/array_unpacking_string_keys
-        // @see \Rector\Tests\DowngradePhp81\Rector\Array_\DowngradeArraySpreadStringKeyRector\DowngradeArraySpreadStringKeyRectorTest
-        /*
-        [$isEventObject, $event, $payload] = [
+        [$isEventObject, $parsedEvent, $parsedPayload] = [
             is_object( $event ),
             ...$this->parseEventAndPayload( $event, $payload ),
         ];
-         */
-        [$isEventObject, $event, $payload] = array_merge( [ is_object( $event ) ], $this->parseEventAndPayload( $event, $payload ) );
 
-        return $this->invokeListeners( $event, $payload, $halt );
+        if ( $this->shouldDeferEvent( $parsedEvent ) ) {
+            $this->deferredEvents[] = func_get_args();
+
+            return null;
+        }
+
+        return $this->invokeListeners( $parsedEvent, $parsedPayload, $halt );
     }
 
     /**
@@ -228,6 +256,7 @@ class Dispatcher implements DispatcherContract {
      * @param string|object $event
      * @param mixed         $payload
      * @param bool          $halt
+     *
      * @return array|null
      */
     protected function invokeListeners( $event, $payload, $halt = false ) {
@@ -261,7 +290,8 @@ class Dispatcher implements DispatcherContract {
      *
      * @param mixed $event
      * @param mixed $payload
-     * @return array
+     *
+     * @return array{string, array}
      */
     protected function parseEventAndPayload( $event, $payload ) {
         if ( is_object( $event ) ) {
@@ -275,6 +305,7 @@ class Dispatcher implements DispatcherContract {
      * Get all of the listeners for a given event name.
      *
      * @param string $eventName
+     *
      * @return array
      */
     public function getListeners( $eventName ) {
@@ -292,6 +323,7 @@ class Dispatcher implements DispatcherContract {
      * Get the wildcard listeners for the event.
      *
      * @param string $eventName
+     *
      * @return array
      */
     protected function getWildcardListeners( $eventName ) {
@@ -313,6 +345,7 @@ class Dispatcher implements DispatcherContract {
      *
      * @param string $eventName
      * @param array  $listeners
+     *
      * @return array
      */
     protected function addInterfaceListeners( $eventName, array $listeners = [] ) {
@@ -331,7 +364,8 @@ class Dispatcher implements DispatcherContract {
      * Prepare the listeners for a given event.
      *
      * @param string $eventName
-     * @return array<\Closure>
+     *
+     * @return \Closure[]
      */
     protected function prepareListeners( string $eventName ) {
         $listeners = [];
@@ -348,6 +382,7 @@ class Dispatcher implements DispatcherContract {
      *
      * @param \Closure|string|array $listener
      * @param bool                  $wildcard
+     *
      * @return \Closure
      */
     public function makeListener( $listener, $wildcard = false ) {
@@ -359,7 +394,7 @@ class Dispatcher implements DispatcherContract {
             return $this->createClassListener( $listener, $wildcard );
         }
 
-        return static function ( $event, $payload ) use ( $listener, $wildcard ) {
+        return function ( $event, $payload ) use ( $listener, $wildcard ) {
             if ( $wildcard ) {
                 return $listener( $event, $payload );
             }
@@ -373,6 +408,7 @@ class Dispatcher implements DispatcherContract {
      *
      * @param string $listener
      * @param bool   $wildcard
+     *
      * @return \Closure
      */
     public function createClassListener( $listener, $wildcard = false ) {
@@ -391,6 +427,7 @@ class Dispatcher implements DispatcherContract {
      * Create the class based event callable.
      *
      * @param array|string $listener
+     *
      * @return callable
      */
     protected function createClassCallable( $listener ) {
@@ -411,7 +448,8 @@ class Dispatcher implements DispatcherContract {
      * Parse the class listener into class and method.
      *
      * @param string $listener
-     * @return array
+     *
+     * @return array{class-string, string}
      */
     protected function parseClassCallable( $listener ) {
         return Str::parseCallback( $listener, 'handle' );
@@ -421,6 +459,7 @@ class Dispatcher implements DispatcherContract {
      * Remove a set of listeners from the dispatcher.
      *
      * @param string $event
+     *
      * @return void
      */
     public function forget( $event ) {
@@ -451,6 +490,53 @@ class Dispatcher implements DispatcherContract {
     }
 
     /**
+     * Execute the given callback while deferring events, then dispatch all deferred events.
+     *
+     * @template TResult
+     *
+     * @param callable(): TResult $callback
+     * @param string[]|null       $events
+     *
+     * @return TResult
+     */
+    public function defer( callable $callback, ?array $events = null ) {
+        $wasDeferring           = $this->deferringEvents;
+        $previousDeferredEvents = $this->deferredEvents;
+        $previousEventsToDefer  = $this->eventsToDefer;
+
+        $this->deferringEvents = true;
+        $this->deferredEvents  = [];
+        $this->eventsToDefer   = $events;
+
+        try {
+            $result = $callback();
+
+            $this->deferringEvents = false;
+
+            foreach ( $this->deferredEvents as $args ) {
+                $this->dispatch( ...$args );
+            }
+
+            return $result;
+        } finally {
+            $this->deferringEvents = $wasDeferring;
+            $this->deferredEvents  = $previousDeferredEvents;
+            $this->eventsToDefer   = $previousEventsToDefer;
+        }
+    }
+
+    /**
+     * Determine if the given event should be deferred.
+     *
+     * @param string $event
+     *
+     * @return bool
+     */
+    protected function shouldDeferEvent( string $event ) {
+        return $this->deferringEvents && ( null === $this->eventsToDefer || in_array( $event, $this->eventsToDefer ) );
+    }
+
+    /**
      * Gets the raw, unprepared listeners.
      *
      * @return array
@@ -458,5 +544,4 @@ class Dispatcher implements DispatcherContract {
     public function getRawListeners() {
         return $this->listeners;
     }
-
 }

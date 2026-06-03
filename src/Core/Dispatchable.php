@@ -1,16 +1,19 @@
 <?php
 
-namespace Hybrid\Events;
+namespace Hybrid\Events\Core;
+
+use function Hybrid\Events\event;
 
 trait Dispatchable {
-
     /**
      * Dispatch the event with the given arguments.
      *
+     * @param mixed ...$arguments
+     *
      * @return mixed
      */
-    public static function dispatch() {
-        return event( new static( ...func_get_args() ) );
+    public static function dispatch( ...$arguments ) {
+        return event( new static( ...$arguments ) );
     }
 
     /**
@@ -18,6 +21,7 @@ trait Dispatchable {
      *
      * @param bool  $boolean
      * @param mixed ...$arguments
+     *
      * @return mixed
      */
     public static function dispatchIf( $boolean, ...$arguments ) {
@@ -31,6 +35,7 @@ trait Dispatchable {
      *
      * @param bool  $boolean
      * @param mixed ...$arguments
+     *
      * @return mixed
      */
     public static function dispatchUnless( $boolean, ...$arguments ) {
@@ -38,5 +43,4 @@ trait Dispatchable {
             return event( new static( ...$arguments ) );
         }
     }
-
 }

@@ -4,20 +4,21 @@ The Events package for Hybrid Core.
 
 ## Requirements
 
-* PHP 8.0+.
+* PHP 8.2+.
 * [Composer](https://getcomposer.org/) for managing PHP dependencies.
 
 ## Copyright and License
 
 This project is licensed under the [GNU GPL](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html), version 2 or later.
 
-2008&thinsp;&ndash;&thinsp;2023 &copy; [Theme Hybrid](https://themehybrid.com).
+2008&thinsp;&ndash;&thinsp;2026 &copy; [Theme Hybrid](https://themehybrid.com).
 
-## Other Licenses
+## Third-Party Licenses
 
-Hybrid Tools utilizes code from Illuminate.
+Hybrid Events utilizes code from the illuminate/events package.
 
-https://github.com/illuminate/events
+Repository: https://github.com/illuminate/events
 
-License: MIT - https://opensource.org/licenses/MIT
+License: MIT License - <https://opensource.org/licenses/MIT>
+
 Copyright (c) Taylor Otwell
